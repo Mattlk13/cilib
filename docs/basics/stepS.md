@@ -7,7 +7,7 @@ Content currently under development
 
 <!--
 At this point, we now understand what `Step` is.
-`StepS` is very similar but now we are creating a step with a state.
+`StepS` is similar but now we are creating a step with a state.
 
 What is a state?
 Lets first at look functions to answer this.
@@ -24,7 +24,7 @@ Now since we haven't come across any `StepS` instances before this, we will firs
 
 ## StepS Class
 
-`final case class StepS[A,S,B](run: StateT[Step[A,?],S,B])`
+`final case class StepS[A,S,B](run: StateT[Step[A,*],S,B])`
 
 As you can see the class header bares some resemblance to that of
 `Step`. Here, however, the parameter `run` is a state transformer,
@@ -37,7 +37,7 @@ def map[C](f: B => C): StepS[A,S,C]
 def flatMap[C](f: B => StepS[A,S,C]): StepS[A,S,C]
 ```
 
-But what also makes `StepS` unique is its `zoom` method.
+What also makes `StepS` unique is its `zoom` method.
 
 ```scala
 def zoom[S2](l: monocle.Lens[S2,S]): StepS[A,S2,B]
@@ -60,8 +60,6 @@ basics.
 
 ```scala
 import cilib._
-import scalaz._
-import Scalaz._
 import spire.implicits._
 import spire.math.Interval
 import _root_.eu.timepit.refined.auto._
@@ -92,7 +90,7 @@ Now, putting it all together to make a `StepS`. Pay close attention
 to the resulting types.
 
 ```scala
-val myStepS = StepS(StateT[Step[Double, ?], Position[Double], Double](x => Step.point(explore(x, 0.96))))
+val myStepS = StepS(StateT[Step[Double, *], Position[Double], Double](x => Step.point(explore(x, 0.96))))
 val step = myStepS.run(position) // Supply an initial value
 val rvar = step.run(env)
 val result = rvar.eval(rng)
@@ -128,7 +126,7 @@ as well as the value at hand by chaining together `StepS`s.
 
 ```scala :silent
 def negate (position: Position[Double]): (Position[Double], Double) = (position.map(x => x * -1), -1.0)
-val myStepS2 = StepS(StateT[Step[Double, ?], Position[Double], Double](x => Step.point(negate(x))))
+val myStepS2 = StepS(StateT[Step[Double, *], Position[Double], Double](x => Step.point(negate(x))))
 ```
 ```scala :silent
 myStepS.flatMap(x => myStepS2).run(position).run(env).eval(rng)
@@ -163,9 +161,9 @@ Not only does it offer us `StepS` creation methods, there are two
 implicits that you should be mindful about.
 
 ```scala
-implicit def stepSMonad[A,S]: Monad[StepS[A,S,?]]
+implicit def stepSMonad[A,S]: Monad[StepS[A,S,*]]
 
-implicit def stepSMonadState[A,S]: MonadState[StepS[A,S,?], S]
+implicit def stepSMonadState[A,S]: MonadState[StepS[A,S,*], S]
 ```
 
 ### lensIso

@@ -1,22 +1,20 @@
 package cilib
 
-import scalaz.Foldable
-import scalaz.stream._
-import scalaz.concurrent.Task
-import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.Path
-import com.sksamuel.avro4s._
-import org.apache.parquet.avro._
-import org.apache.avro.generic.GenericRecord
+import com.github.mjakubowski84.parquet4s._
+import org.apache.parquet.hadoop.metadata.CompressionCodecName
+import zio._
+import zio.blocking.Blocking
+import zio.prelude._
+import zio.stream._
 
 package object io {
   import cilib.exec._
-  import EncodeCsv._
 
-  def writeCsvWithHeader[F[_], A](file: java.io.File, data: F[A])(implicit F: Foldable[F],
-                                                                  N: ColumnNameEncoder[A],
-                                                                  A: EncodeCsv[A]): Unit = {
-    val list = F.toList(data)
+  def writeCsvWithHeader[F[+_], A: EncodeCsv](
+    file: java.io.File,
+    data: F[A]
+  )(implicit F: ForEach[F], N: ColumnNameEncoder[A]): Unit = {
+    val list: List[A] = F.toList(data)
 
     list.headOption match {
       case None =>
@@ -27,17 +25,17 @@ package object io {
 
         pw.println(N.encode(o).mkString(","))
 
-        list.foreach(item => {
+        list.foreach { item =>
           val encoded = EncodeCsv.write(item)
           pw.println(encoded)
-        })
+        }
 
         pw.close
     }
   }
 
-  def writeCsv[F[_]: Foldable, A: EncodeCsv](file: java.io.File, data: F[A]): Unit = {
-    val list = Foldable[F].toList(data)
+  def writeCsv[F[+_], A: EncodeCsv](file: java.io.File, data: F[A])(implicit F: ForEach[F]): Unit = {
+    val list: List[A] = F.toList(data)
 
     list.headOption match {
       case None =>
@@ -46,80 +44,112 @@ package object io {
       case Some(_) =>
         val pw = new java.io.PrintWriter(file, "UTF-8")
 
-        list.foreach(item => {
+        list.foreach { item =>
           val encoded = EncodeCsv.write(item)
           pw.println(encoded)
-        })
+        }
 
         pw.close
     }
   }
 
-  def csvSink[A: EncodeCsv](file: java.io.File)(implicit A: EncodeCsv[Measurement[A]]): Sink[Task, Measurement[A]] = {
-    val fileWriter = new java.io.PrintWriter(file)
-
-    sink
-      .lift { (input: Measurement[A]) =>
-        val encoded = A.encode(input)
-        Task.delay(fileWriter.println(encoded.mkString(",")))
+  def csvSink[A: EncodeCsv](
+    file: java.io.File
+  )(implicit A: EncodeCsv[Measurement[A]]): ZSink[Blocking, Throwable, Measurement[A], Measurement[A], Unit] = {
+    val managedChannel = ZManaged.make(
+      blocking.effectBlockingInterrupt {
+        new java.io.PrintWriter(file)
       }
-      .onComplete(Process.eval_(Task.delay(fileWriter.close())))
+    )(chan => blocking.effectBlocking(chan.close()).orDie)
+
+    val writer: ZSink[Blocking, Throwable, Measurement[A], Measurement[A], Unit] =
+      ZSink.managed(managedChannel) { chan =>
+        ZSink.foreach[Blocking, Throwable, Measurement[A]](measurement =>
+          blocking.effectBlockingInterrupt {
+            chan.println(A.encode(measurement).mkString(","))
+          }
+        )
+      }
+
+    writer
   }
 
-  def csvHeaderSink[A: EncodeCsv](file: java.io.File)(implicit A: EncodeCsv[Measurement[A]],
-                                                      N: ColumnNameEncoder[Measurement[A]]): Sink[Task, Measurement[A]] = {
-    val fileWriter = new java.io.PrintWriter(file)
-    var headerWritten = false
-
-    sink
-      .lift { (input: Measurement[A]) =>
-        if (!headerWritten) {
-          fileWriter.println(N.encode(input).mkString(","))
-          headerWritten = true
-        }
-
-        val encoded = A.encode(input)
-        Task.delay(fileWriter.println(encoded.mkString(",")))
+  def csvHeaderSink[A: EncodeCsv](
+    file: java.io.File
+  )(
+    implicit A: EncodeCsv[Measurement[A]],
+    N: ColumnNameEncoder[Measurement[A]]
+  ): ZSink[Blocking, Throwable, Measurement[A], Measurement[A], Unit] = {
+    val managedChannel = ZManaged.make(
+      blocking.effectBlockingInterrupt {
+        new java.io.PrintWriter(file)
       }
-      .onComplete(Process.eval_(Task.delay(fileWriter.close())))
+    )(chan => blocking.effectBlocking(chan.close()).orDie)
+
+    val writer: ZSink[Blocking, Throwable, Measurement[A], Measurement[A], Unit] =
+      ZSink.managed(managedChannel) { chan =>
+        var headerWritten = false
+
+        ZSink.foreach[Blocking, Throwable, Measurement[A]](measurement =>
+          blocking.effectBlockingInterrupt {
+            if (!headerWritten) {
+              chan.println(N.encode(measurement).mkString(","))
+              headerWritten = true
+            }
+
+            chan.println(A.encode(measurement).mkString(","))
+          }
+        )
+      }
+
+    writer
   }
 
-  def writeParquet[F[_]: Foldable, A: SchemaFor](file: java.io.File, data: F[A])(
-      implicit T: ToRecord[A]): Unit = {
-    val testConf = new Configuration
-    val schema = AvroSchema[A]
+  def writeParquet[F[+_], A: ParquetRecordEncoder: ParquetSchemaResolver](
+    file: java.io.File,
+    data: F[A]
+  )(
+    implicit F: ForEach[F],
+    encoder: ParquetRecordEncoder[Measurement[A]],
+    schema: ParquetSchemaResolver[Measurement[A]]
+  ): Unit = {
+    val options = ParquetWriter.Options(
+      compressionCodecName = CompressionCodecName.SNAPPY,
+      pageSize = 4 * 1024 * 1024,
+      rowGroupSize = 16 * 1024 * 1024
+    )
 
-    val path = new Path(file.getAbsolutePath)
+    val list: List[A] = F.toList(data)
 
-    val writer = AvroParquetWriter
-      .builder[GenericRecord](path)
-      .withSchema(schema)
-      .withConf(testConf)
-      .build()
-
-    Foldable[F].toList(data).foreach(item => writer.write(T.apply(item)))
-
-    writer.close()
+    ParquetWriter.writeAndClose(file.getAbsolutePath, list, options)
   }
 
-  def parquetSink[A:ToRecord:ToSchema](file: java.io.File)(
-      implicit toRecord: ToRecord[Measurement[A]]): Sink[Task, Measurement[A]] = {
-    val testConf = new Configuration
-    val schema = AvroSchema[Measurement[A]]
-    val path = new Path(file.getAbsolutePath)
-    val writer = AvroParquetWriter
-      .builder[GenericRecord](path)
-      .withSchema(schema)
-      .withConf(testConf)
-      .build()
+  def parquetSink[A: ParquetRecordEncoder: ParquetSchemaResolver](file: java.io.File)(
+    implicit encoder: ParquetRecordEncoder[Measurement[A]],
+    schema: ParquetSchemaResolver[Measurement[A]]
+  ): ZSink[Blocking, Throwable, Measurement[A], Measurement[A], Unit] = {
+    val options = ParquetWriter.Options(
+      compressionCodecName = CompressionCodecName.SNAPPY,
+      pageSize = 4 * 1024 * 1024,
+      rowGroupSize = 16 * 1024 * 1024
+    )
 
-    val complete = Process.eval_(Task.delay(writer.close))
-
-    sink
-      .lift { (input: Measurement[A]) =>
-        Task.delay(writer.write(toRecord.apply(input)))
+    val managedChannel = ZManaged.make(
+      blocking.effectBlockingInterrupt {
+        ParquetWriter.writer[Measurement[A]](file.getAbsolutePath, options)
       }
-      .onComplete(complete)
+    )(chan => blocking.effectBlocking(chan.close()).orDie)
+
+    val writer: ZSink[Blocking, Throwable, Measurement[A], Measurement[A], Unit] =
+      ZSink.managed(managedChannel) { chan =>
+        ZSink.foreach[Blocking, Throwable, Measurement[A]](measurement =>
+          blocking.effectBlockingInterrupt {
+            chan.write(measurement)
+          }
+        )
+      }
+
+    writer
   }
 
 }

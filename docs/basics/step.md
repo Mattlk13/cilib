@@ -3,7 +3,30 @@ id: step
 title: Step
 ---
 
-Content currently under development
+:::caution
+Work in progress
+:::
+
+Within an algorithm there are discrete actions that are run in order to achieve the intention of the algorithm.
+Consider some pseudo-code for an algorithm.
+The pseudo-code provides the intetions for an action but does not specify the explicit implementation of the action either.
+Common examples of such discrete actions include:
+
+* Sample a random number and compare against a threshold value to create a branch in logic
+* Enclose a set of actions within a looping action
+* Update an algorithm specific variable
+
+Although these examples are quite generic in their intention the important concept to appreciate is that these discrete actions form the individual _steps_ of an algorithm.
+Within the context of optimization algorithms, any _step_ within an algorithm could use or does make use of randomness, the target optimization scheme (either minimization or maximization) and the problem which the algorithm is currently optimizing.
+The optimization problem is usually provided as a single function which evaluates the candidate solutions from the optimization algorithm to determine how well problem itself is solved by the candidate solution.
+
+Taking all these factors into account we create a new data structure that extends or build on the foundation of `RVar`.
+The new structure is simply referred to as `Step`.
+`Step` represents a function from the current algorithm environment to a value within `RVar`.
+The environment is a set of values (namely the `Opt`imization scheme and the optimization `Eval`uation function) that remain fixed throughout the algorithm execution, or at least for a single atomic algorithm iteration.
+
+
+
 
 <!--
 What is this mysterious data type called `Step`? Well, it actually
@@ -19,8 +42,6 @@ evaluating them? This wil be our first introduction to `Step`.
 import cilib._
 import spire.implicits._
 import spire.math._
-import scalaz._
-import Scalaz._
 ```
 ```scala :silent
 val rng = RNG.init(12)
@@ -50,7 +71,7 @@ algorithm.
 
 An environment is simply a *container* for the specifications of our
 problem. And as we can see from the class definition, it uses types
-we are very familiar with.
+we are already familiar with.
 
 ```
 final case class Environment[A](
@@ -62,8 +83,6 @@ An example of creating an `Environment` would be the following...
 
 ```scala :invisible
 import cilib._
-import scalaz._
-import Scalaz._
 import spire.math.Interval
 import spire.implicits.{eu => _, _}
 
@@ -78,7 +97,7 @@ val env = Environment(
 
 ## Step Class
 
-`Step` is has a very simple class definition. It takes a single
+`Step` is has a simple class definition. It takes a single
 parameter, that being a function of type `Environment[A] => RVar[B]`.
 We see this member function used we we call `run` of a `Step`.
 
@@ -106,8 +125,6 @@ Here we changing the context of the `Step`.
 import cilib._
 import spire.implicits._
 import spire.math._
-import scalaz._
-import Scalaz._
 
 val bounds = Interval(-5.12,5.12)^2
 
@@ -209,8 +226,7 @@ Returns an instance of `Step` based on the given parameter.
 import cilib._
 import spire.implicits._
 import spire.math._
-import scalaz._
-import Scalaz._
+
 val rng = RNG.init(12)
 val bounds = Interval(-5.12,5.12)^2
 val env = Environment(
@@ -318,7 +334,7 @@ We also learnt some valuable skills in this chapter such as:
 - How to can compare two `Entities` in a step.
 :::
 
-But what if I told you `Step` has a sibling?
+What if I told you `Step` has a sibling?
 *gasp*.
 In the next chapter we are going to look at `StepS` which represents a step with a state.
 -->

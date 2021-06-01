@@ -1,15 +1,13 @@
 package cilib
 
-import scalaz._
-import Scalaz._
-
 import eu.timepit.refined.api.Refined
 import eu.timepit.refined.numeric._
-
-import spire.algebra.{Module, Rng}
+import spire.algebra.{ LeftModule, Ring }
+import spire.implicits._
 import spire.math._
+import zio.prelude._
 
-sealed abstract class Position[A] {
+sealed abstract class Position[+A] {
   import Position._
 
   def map[B](f: A => B): Position[B] =
@@ -21,17 +19,14 @@ sealed abstract class Position[A] {
   def zip[B](other: Position[B]): Position[(A, B)] =
     Point(pos.zip(other.pos), boundary)
 
-  def traverse[G[_]: Applicative, B](f: A => G[B]): G[Position[B]] =
-    pos.traverse(f).map(Point(_, boundary))
+  def traverse[G[+_]: IdentityBoth: Covariant, B](f: A => G[B]): G[Position[B]] =
+    this.forEach(f)
 
-  def take(n: Int): IList[A] =
-    pos.list.take(n)
+  def take(n: Int): List[A] =
+    pos.take(n)
 
-  def drop(n: Int): IList[A] =
-    this match {
-      case Point(x, _)       => x.list.drop(n)
-      case Solution(x, _, _) => x.list.drop(n)
-    }
+  def drop(n: Int): List[A] =
+    pos.drop(n)
 
   def pos: NonEmptyList[A] =
     this match {
@@ -45,7 +40,7 @@ sealed abstract class Position[A] {
       case Solution(x, b, _) => Point(x, b)
     }
 
-  def objective: Option[Objective[A]] =
+  def objective: Option[Objective] =
     this match {
       case Point(_, _)       => None
       case Solution(_, _, o) => Some(o)
@@ -58,39 +53,29 @@ sealed abstract class Position[A] {
     }
 
   def forall(f: A => Boolean): Boolean =
-    pos.list.toList.forall(f)
+    pos.forall(f)
 }
 
 object Position {
-  private final case class Point[A](x: NonEmptyList[A], b: NonEmptyList[Interval[Double]])
-      extends Position[A]
-  private final case class Solution[A](x: NonEmptyList[A],
-                                       b: NonEmptyList[Interval[Double]],
-                                       o: Objective[A])
+  private final case class Point[A](x: NonEmptyList[A], b: NonEmptyList[Interval[Double]]) extends Position[A]
+  private final case class Solution[A](x: NonEmptyList[A], b: NonEmptyList[Interval[Double]], o: Objective)
       extends Position[A]
 
-  implicit def positionInstances: Bind[Position] with Traverse1[Position] with Align[Position] =
-    new Bind[Position] with Traverse1[Position] with Align[Position] {
-      override def map[A, B](fa: Position[A])(f: A => B): Position[B] =
-        fa.map(f)
+  implicit def positionEqual[A: zio.prelude.Equal]: zio.prelude.Equal[Position[A]] =
+    zio.prelude.Equal.make[Position[A]] { (l, r) =>
+      l.pos === r.pos && l.boundary === r.boundary
+    }
 
-      override def bind[A, B](fa: Position[A])(f: A => Position[B]): Position[B] =
-        fa.flatMap(f)
+  implicit val positionForEach: ForEach[Position] =
+    new ForEach[Position] {
+      def forEach[G[+_]: IdentityBoth: Covariant, A, B](fa: Position[A])(f: A => G[B]): G[Position[B]] =
+        ForEach[NonEmptyList].forEach(fa.pos)(f).map(Point(_, fa.boundary))
+    }
 
-      override def traverseImpl[G[_]: Applicative, A, B](fa: Position[A])(
-          f: A => G[B]): G[Position[B]] =
-        fa.traverse(f)
-
-      override def traverse1Impl[G[_], A, B](fa: Position[A])(f: A => G[B])(
-          implicit A: Apply[G]): G[Position[B]] =
-        fa.traverse1(f)
-
-      def alignWith[A, B, C](f: A \&/ B => C) =
-        (a, b) => Point(a.pos.alignWith(b.pos)(f), a.boundary)
-
-      def foldMapRight1[A, B](fa: Position[A])(z: A => B)(f: (A, => B) => B): B =
-        fa.pos.foldMapRight1(z)(f)
-
+  implicit val positionNonEmptyForEach: NonEmptyForEach[Position] =
+    new NonEmptyForEach[Position] {
+      def forEach1[G[+_]: AssociativeBoth: Covariant, A, B](fa: Position[A])(f: A => G[B]): G[Position[B]] =
+        NonEmptyForEach[NonEmptyList].forEach1(fa.pos)(f).map(Point(_, fa.boundary))
     }
 
   implicit def positionDotProd[A](implicit A: Numeric[A]): algebra.DotProd[Position, A] =
@@ -109,31 +94,53 @@ object Position {
         a.zip(b).map(x => x._1 * x._2)
     }
 
-  implicit class PositionVectorOps[A](val x: Position[A]) extends AnyVal {
-    def zeroed(implicit A: Rng[A]): Position[A] =
+  implicit def positionModule[A](implicit sc: Ring[A]): LeftModule[Position[A], A] =
+    new LeftModule[Position[A], A] {
+      def scalar: Ring[A] = sc
+
+      def negate(x: Position[A]) = x.map(scalar.negate)
+      def zero                   = Position(NonEmptyList(scalar.zero), NonEmptyList(spire.math.Interval(0.0, 0.0)))
+
+      def plus(x: Position[A], y: Position[A]) = {
+        val combined =
+          align(x.pos, y.pos).map(_ match {
+            case These.Left(l)    => l
+            case These.Right(r)   => r
+            case These.Both(l, r) => scalar.plus(l, r)
+          })
+
+        Point(combined, x.boundary)
+      }
+
+      def timesl(r: A, v: Position[A]): Position[A] =
+        v.map(scalar.times(r, _))
+    }
+
+  implicit class PositionVectorOps[A](private val x: Position[A]) extends AnyVal {
+    def zeroed(implicit A: Ring[A]): Position[A] =
       x.map(_ => A.zero)
 
-    def +(other: Position[A])(implicit M: Module[Position[A], A]): Position[A] =
+    def +(other: Position[A])(implicit M: LeftModule[Position[A], A]): Position[A] =
       M.plus(x, other)
 
-    def -(other: Position[A])(implicit M: Module[Position[A], A]): Position[A] =
+    def -(other: Position[A])(implicit M: LeftModule[Position[A], A]): Position[A] =
       M.minus(x, other)
 
-    def *:(scalar: A)(implicit M: Module[Position[A], A]): Position[A] =
+    def *:(scalar: A)(implicit M: LeftModule[Position[A], A]): Position[A] =
       M.timesl(scalar, x)
 
-    def unary_-(implicit M: Module[Position[A], A]): Position[A] =
+    def unary_-(implicit M: LeftModule[Position[A], A]): Position[A] =
       M.negate(x)
 
-    def isZero(implicit R: Rng[A]): Boolean = {
+    def isZero(implicit R: Ring[A]): Boolean = {
       @annotation.tailrec
-      def test(xs: IList[A]): Boolean =
+      def test(xs: List[A]): Boolean =
         xs match {
-          case INil()        => true
-          case ICons(x, xss) => if (x != R.zero) false else test(xss)
+          case Nil      => true
+          case x :: xss => if (x != R.zero) false else test(xss)
         }
 
-      test(x.pos.list)
+      test(x.pos.toList)
     }
   }
 
@@ -143,35 +150,13 @@ object Position {
         a.objective
     }
 
-  implicit def positionEqual[A: scalaz.Equal]: scalaz.Equal[Position[A]] =
-    scalaz.Equal.equal[Position[A]]((a, b) => (a.pos === b.pos) && (a.boundary === b.boundary))
-
-  implicit val positionFoldable1: Foldable1[Position] =
-    new Foldable1[Position] {
-      def foldMap1[A, B](fa: Position[A])(f: A => B)(implicit F: Semigroup[B]): B =
-        fa match {
-          case Point(xs, _) =>
-            xs.foldMap1(f)
-          case Solution(xs, _, _) =>
-            xs.foldMap1(f)
-        }
-
-      def foldMapRight1[A, B](fa: Position[A])(z: A => B)(f: (A, => B) => B): B =
-        fa match {
-          case Point(xs, _) =>
-            xs.foldMapRight1(z)(f)
-          case Solution(xs, _, _) =>
-            xs.foldMapRight1(z)(f)
-        }
-    }
-
-  def eval[F[_], A](e: RVar[NonEmptyList[A] => Objective[A]], pos: Position[A]): RVar[Position[A]] =
+  def eval[A](e: Eval[NonEmptyList], pos: Position[A]): RVar[Position[A]] =
     pos match {
       case Point(x, b) =>
-        e.map(f => {
-          val s: Objective[A] = f.apply(x)
+        e.eval.map { f =>
+          val s: Objective = f.apply(x)
           Solution(x, b, s)
-        })
+        }
 
       case x @ Solution(_, _, _) =>
         RVar.pure(x)
@@ -181,17 +166,25 @@ object Position {
     Point(xs, b)
 
   def createPosition[A](domain: NonEmptyList[Interval[Double]]): RVar[Position[Double]] =
-    domain.traverse(Dist.uniform).map(x => Position(x, domain))
+    ForEach[NonEmptyList]
+      .forEach(domain)(Dist.uniform)
+      .map(znel => Position(znel, domain))
+  //domain.traverse(Dist.uniform).map(x => Position(x, domain))
 
-  def createPositions(domain: NonEmptyList[Interval[Double]],
-                      n: Int Refined Positive): RVar[NonEmptyList[Position[Double]]] =
+  def createPositions(
+    domain: NonEmptyList[Interval[Double]],
+    n: Int Refined Positive
+  ): RVar[NonEmptyList[Position[Double]]] =
     createPosition(domain)
       .replicateM(n.value)
-      .map(_.toNel.getOrElse(
-        sys.error("Impossible -> refinement requires n to be positive, i.e. n > 0")))
+      .map(list =>
+        NonEmptyList
+          .fromIterableOption(list)
+          .getOrElse(sys.error("Impossible -> refinement requires n to be positive, i.e. n > 0"))
+      )
 
-  def createCollection[A](f: Position[Double] => A)(
-      domain: NonEmptyList[Interval[Double]],
-      n: Int Refined Positive): RVar[NonEmptyList[A]] =
+  def createCollection[A](
+    f: Position[Double] => A
+  )(domain: NonEmptyList[Interval[Double]], n: Int Refined Positive): RVar[NonEmptyList[A]] =
     createPositions(domain, n).map(_.map(f))
 }

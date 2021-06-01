@@ -5,8 +5,8 @@ title: Runner
 
 # Runner and Our First Algorithm
 
-In this chapter we are going to create our very own Genetic Algorithm.
-But there are a few things we are going to have to discuss first before we jump into the creating a GA.
+In this chapter we are going to create our own Genetic Algorithm.
+There are a few things we are going to have to discuss first before we jump into the creating a GA.
 
 CILib offers a data type that we may use to run our algorithms.
 I say "may" because, if so choose, you create your own way of running the algorithms.
@@ -44,9 +44,9 @@ Pretty cool, hey?
 These are the discussed methods.
 
 ```scala
-repeat[F[_],A,B](n: Int, alg: Kleisli[Step[A,?],F[B],F[B]], collection: RVar[F[B]]): Step[A,F[B]]
+repeat[F[_],A,B](n: Int, alg: Kleisli[Step[A,*],F[B],F[B]], collection: RVar[F[B]]): Step[A,F[B]]
 
-repeatS[F[_],A,S,B](n: Int, alg: Kleisli[StepS[A,S,?],F[B],F[B]], collection: RVar[F[B]]): StepS[A,S,F[B]]
+repeatS[F[_],A,S,B](n: Int, alg: Kleisli[StepS[A,S,*],F[B],F[B]], collection: RVar[F[B]]): StepS[A,S,F[B]]
 ```
 
 "Woah, that looks intimidating".
@@ -74,13 +74,13 @@ They are made public so that if you ever wanted to perhaps make your own iterato
 The following methods use the *raw* and generic methods to create something we are a bit more familiar with.
 
 ```scala
-def sync[A,B,C](f: NonEmptyList[B] => B => Step[A,C]) = sync_[Step[A,?],B,C](f)
+def sync[A,B,C](f: NonEmptyList[B] => B => Step[A,C]) = sync_[Step[A,*],B,C](f)
 
-def syncS[A,S,B,C](f: NonEmptyList[B] => B => StepS[A,S,C]) = sync_[StepS[A,S,?], B,C](f)
+def syncS[A,S,B,C](f: NonEmptyList[B] => B => StepS[A,S,C]) = sync_[StepS[A,S,*], B,C](f)
 
-def async[A,B](f: NonEmptyList[B] => B => Step[A,B]) = async_[Step[A,?], B](f)
+def async[A,B](f: NonEmptyList[B] => B => Step[A,B]) = async_[Step[A,*], B](f)
 
-def asyncS[A,S,B](f: NonEmptyList[B] => B => StepS[A,S,B]) = async_[StepS[A,S,?], B](f)
+def asyncS[A,S,B](f: NonEmptyList[B] => B => StepS[A,S,B]) = async_[StepS[A,S,*], B](f)
 ```
 
 As we saw with runner we are given methods to handle both `Step` and `StepS` based algorithms.
@@ -108,8 +108,6 @@ We will be using the following `imports` for our GA.
 ```scala :silent
 import cilib._
 import cilib.ga._
-import scalaz._
-import Scalaz._
 import eu.timepit.refined.auto._
 import spire.implicits.{eu => _, _}
 import spire.math.Interval
@@ -132,7 +130,7 @@ val env = Environment(
 
 ### The GA Algorithm
 
-The GA algorithm is the exact same one used in `cilib-ga`.
+The GA algorithm is the same as the implementation within `cilib-ga`.
 
 The reason we are intentionally defining it as opposed to importing it
 is so that we can see the inner workings and learn from it.

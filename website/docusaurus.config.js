@@ -1,78 +1,98 @@
 module.exports = {
-  title: 'CIlib',
-  tagline: 'Predictable and Pure Evolutionary and Swarm Intelligence',
-  url: 'https://cilib.net',
-  baseUrl: '/',
-  favicon: 'img/favicon.ico',
-  organizationName: 'ciren', // Usually your GitHub org/user name.
-  projectName: 'cilib', // Usually your repo name.
+  title: "CIlib",
+  tagline: "Reproducible, Pure and Type-sage Evolutionary Computation and Swarm Intelligence",
+  url: "https://cilib.net/",
+  baseUrl: "/",
+  favicon: "img/favicon.ico",
+  organizationName: "ciren",
+  projectName: "cilib",
   themeConfig: {
     navbar: {
-      title: 'CIlib',
-      // logo: {
-      //   alt: 'My Site Logo',
-      //   src: 'img/logo.svg',
-      // },
-      links: [
-        {to: 'docs/introduction/getting-started', label: 'Docs', position: 'right'},
+      title: "CIlib",
+      logo: {
+        alt: 'My Site Logo',
+        src: 'img/logo.svg',
+      },
+      items: [
+        {
+          to: "docs/introduction/getting-started",
+          label: "Docs",
+          position: "right"
+        },
         //{to: 'blog', label: 'Blog', position: 'right'},
         {
-          href: 'https://github.com/ciren/cilib',
-          label: 'GitHub',
-          position: 'right',
-        },
-      ],
+          href: "https://github.com/ciren/cilib",
+          label: "GitHub",
+          position: "right"
+        }
+      ]
     },
     footer: {
-      style: 'dark',
+      style: "dark",
       links: [
         {
-          title: 'Docs',
+          title: "Docs",
           items: [
             {
-              label: 'Docs',
-              to: 'docs/introduction/getting-started',
+              label: "Docs",
+              to: "docs/introduction/getting-started"
             },
-          ],
+            {
+                label: "API",
+                to: "https://www.google.com"
+            }
+          ]
         },
         {
-          title: 'Community',
-          items: [
+          title: "Community",
+            items: [
+                {
+                    label: "Gitter.im / Matrix",
+                    href: "https://gitter.im/cirg-up/cilib"
+                }
             // {
             //   label: 'Discord',
             //   href: 'https://discordapp.com/invite/docusaurus',
             // },
-          ],
+          ]
         },
         {
-          title: 'Social',
+          title: "Social",
           items: [
             // {
             //   label: 'Blog',
             //   to: 'blog',
             // },
-          ],
-        },
+          ]
+        }
       ],
       // logo: {
       //   alt: '',
       //   src: '',
       //   href: '',
       // },
-      copyright: `Copyright © ${new Date().getFullYear()} CIlib authors`,
+      copyright: `Copyright © ${new Date().getFullYear()} CIlib authors`
+    },
+    prism: {
+      additionalLanguages: ['scala', 'protobuf'],
+      theme: require('prism-react-renderer/themes/nightOwlLight'),
+      darkTheme: require('prism-react-renderer/themes/dracula')
     },
   },
   presets: [
     [
-      '@docusaurus/preset-classic',
+      "@docusaurus/preset-classic",
       {
         docs: {
-          sidebarPath: require.resolve('./sidebars.js'),
+          //homePageId: 'getting-started',
+          path: "../cilib-docs/target/mdoc",
+          sidebarPath: require.resolve("./sidebars.js"),
+//          routeBasePath: 'docs',
         },
-        theme: {
-          customCss: require.resolve('./src/css/custom.css'),
-        },
-      },
-    ],
-  ],
+        // theme: {
+        //   customCss: require.resolve("./src/css/custom.css")
+        // }
+      }
+    ]
+  ]
 };
